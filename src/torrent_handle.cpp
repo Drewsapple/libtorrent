@@ -376,6 +376,16 @@ namespace libtorrent {
 		async_call(&aux::torrent::force_recheck);
 	}
 
+	void torrent_handle::discard_piece(piece_index_t const piece) const
+	{
+		async_call(&aux::torrent::discard_piece, piece);
+	}
+
+	void torrent_handle::discard_pieces(std::vector<piece_index_t> const& pieces) const
+	{
+		async_call(&aux::torrent::discard_pieces, pieces);
+	}
+
 	void torrent_handle::resume() const
 	{
 		async_call(&aux::torrent::resume);

@@ -1121,6 +1121,12 @@ namespace libtorrent::aux {
 		// *blocks must be sorted in ascending order*
 		void piece_failed(piece_index_t index, std::vector<int> blocks = std::vector<int>());
 
+		// Explicit client-requested invalidation. Unlike piece_failed(), this does
+		// not attribute corrupt data to downloaders or penalize peers.
+		void discard_piece(piece_index_t index);
+		void discard_pieces(std::vector<piece_index_t> pieces);
+		void on_discard_piece_sync(piece_index_t piece);
+
 		// the peers in "peers" participated in sending a bad piece. If
 		// "known_bad_peer" is true, we know for sure the peers are guilty,
 		// otherwise only one may be guilty (meaning we can't unconditionally

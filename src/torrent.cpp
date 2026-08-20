@@ -5084,6 +5084,64 @@ namespace {
 		}
 	}
 
+	void torrent::discard_pieces(std::vector<piece_index_t> pieces)
+	{
+		TORRENT_ASSERT(is_single_thread());
+		std::sort(pieces.begin(), pieces.end());
+		pieces.erase(std::unique(pieces.begin(), pieces.end()), pieces.end());
+		for (piece_index_t const piece : pieces) discard_piece(piece);
+	}
+
+	void torrent::discard_piece(piece_index_t const index)
+	{
+		INVARIANT_CHECK;
+		TORRENT_ASSERT(is_single_thread());
+		if (!valid_metadata() || index < piece_index_t{0}
+			|| index >= torrent_file().end_piece() || !have_piece(index))
+			return;
+
+		// Seed mode cannot represent a missing piece. Leaving it without checking
+		// creates the picker while preserving the live peer/tracker state.
+		if (m_seed_mode) leave_seed_mode(seed_mode_t::skip_checking);
+		need_picker();
+
+		for (auto* p : m_connections)
+		{
+			TORRENT_INCREMENT(m_iterating_connections);
+			p->reject_piece(index);
+			p->write_dont_have(index);
+		}
+
+		m_picker->we_dont_have(index);
+		if (index < m_verified.end_index() && m_verified.get_bit(index))
+		{
+			m_verified.clear_bit(index);
+			--m_num_verified;
+		}
+		update_gauge();
+		set_need_save_resume(torrent_handle::if_download_progress);
+
+		// Fence all outstanding disk work and evict cached blocks. This is the
+		// same synchronization primitive used after a failed hash, but deliberately
+		// avoids its peer-penalty path.
+		if (m_storage)
+		{
+			m_picker->lock_piece(index);
+			m_ses.disk_thread().async_clear_piece(m_storage, index
+				, [self = shared_from_this()](piece_index_t const& piece)
+				{ self->on_discard_piece_sync(piece); });
+			m_ses.deferred_submit_jobs();
+		}
+	}
+
+	void torrent::on_discard_piece_sync(piece_index_t const piece)
+	{
+		TORRENT_ASSERT(is_single_thread());
+		if (!has_picker()) return;
+		m_picker->restore_piece(piece, {});
+		update_peer_interest(true);
+	}
+
 	void torrent::penalize_peers(std::set<torrent_peer*> const& peers
 		, piece_index_t const index, bool const known_bad_peer)
 	{

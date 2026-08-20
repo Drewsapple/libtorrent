@@ -699,6 +699,13 @@ namespace aux {
 		// will be the highest of all torrents in the session.
 		void force_recheck() const;
 
+		// Invalidates a locally present piece without restarting the torrent. The
+		// transition is serialized on the session thread, outstanding upload
+		// requests are rejected and peers supporting BEP 54 are notified.
+		// The disk cache is fenced before the piece can be downloaded again.
+		void discard_piece(piece_index_t piece) const;
+		void discard_pieces(std::vector<piece_index_t> const& pieces) const;
+
 		// the disk cache will be flushed before creating the resume data.
 		// This avoids a problem with file timestamps in the resume data in
 		// case the cache hasn't been flushed yet.
