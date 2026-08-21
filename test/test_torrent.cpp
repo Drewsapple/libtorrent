@@ -25,9 +25,11 @@ see LICENSE file.
 #include "libtorrent/extensions.hpp"
 #include "libtorrent/aux_/path.hpp" // for combine_path, current_working_directory
 #include "libtorrent/magnet_uri.hpp"
+#include "libtorrent/read_resume_data.hpp"
 #include "libtorrent/announce_entry.hpp"
 #include "libtorrent/span.hpp"
 #include "libtorrent/session_params.hpp"
+#include "libtorrent/write_resume_data.hpp"
 #include "libtorrent/aux_/random.hpp"
 #include "libtorrent/ip_filter.hpp"
 #include "settings.hpp"
@@ -697,6 +699,63 @@ TORRENT_TEST(test_have_piece_out_of_range)
 	TEST_EQUAL(h.have_piece(piece_index_t{-1}), false);
 	TEST_EQUAL(h.have_piece(0_piece), true);
 	TEST_EQUAL(h.have_piece(100_piece), false);
+}
+
+TORRENT_TEST(discard_pieces_seed_state)
+{
+	lt::session ses(settings());
+
+	int const piece_size = 0x4000;
+	add_torrent_params p = make_torrent(make_files({{piece_size * 4, false}})
+		, piece_size, create_torrent::v2_only);
+	auto const ti = p.ti;
+	p.save_path = ".";
+	p.flags |= torrent_flags::seed_mode | torrent_flags::no_verify_files;
+	torrent_handle h = ses.add_torrent(std::move(p));
+
+	TEST_CHECK(h.have_piece(0_piece));
+	TEST_CHECK(h.have_piece(1_piece));
+	TEST_CHECK(h.have_piece(2_piece));
+	TEST_CHECK(h.have_piece(3_piece));
+
+	// Exercise duplicate, invalid and out-of-range input along with valid pieces.
+	h.discard_pieces({1_piece, 3_piece, 1_piece, piece_index_t{-1}
+		, ti->end_piece()});
+
+	TEST_CHECK(h.have_piece(0_piece));
+	TEST_CHECK(!h.have_piece(1_piece));
+	TEST_CHECK(h.have_piece(2_piece));
+	TEST_CHECK(!h.have_piece(3_piece));
+	torrent_status const st = h.status();
+	TEST_CHECK(!st.is_seeding);
+	TEST_CHECK(!(st.flags & torrent_flags::seed_mode));
+	TEST_CHECK(st.need_save_resume_data & torrent_handle::if_download_progress);
+
+	// Discarding an already missing piece is harmless and must not affect others.
+	h.discard_piece(1_piece);
+	TEST_CHECK(h.have_piece(0_piece));
+	TEST_CHECK(!h.have_piece(1_piece));
+	TEST_CHECK(h.have_piece(2_piece));
+	TEST_CHECK(!h.have_piece(3_piece));
+
+	h.save_resume_data();
+	auto const* const a = alert_cast<save_resume_data_alert>(
+		wait_for_alert(ses, save_resume_data_alert::alert_type));
+	TEST_CHECK(a);
+	if (a == nullptr) return;
+
+	auto const& rd = a->params;
+	TEST_EQUAL(rd.have_pieces.size(), ti->num_pieces());
+	TEST_CHECK(rd.have_pieces[0_piece]);
+	TEST_CHECK(!rd.have_pieces[1_piece]);
+	TEST_CHECK(rd.have_pieces[2_piece]);
+	TEST_CHECK(!rd.have_pieces[3_piece]);
+	// Ensure the discarded have state survives resume serialization.
+	auto const round_trip = read_resume_data(write_resume_data_buf(rd));
+	TEST_CHECK(round_trip.have_pieces[0_piece]);
+	TEST_CHECK(!round_trip.have_pieces[1_piece]);
+	TEST_CHECK(round_trip.have_pieces[2_piece]);
+	TEST_CHECK(!round_trip.have_pieces[3_piece]);
 }
 
 TORRENT_TEST(test_read_piece_no_metadata)

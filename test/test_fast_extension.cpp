@@ -220,7 +220,6 @@ void send_choke(tcp::socket& s)
 		TEST_ERROR(ec.message());
 }
 
-#ifndef TORRENT_DISABLE_PREDICTIVE_PIECES
 void send_interested(tcp::socket& s)
 {
 	log("==> interested");
@@ -229,7 +228,6 @@ void send_interested(tcp::socket& s)
 	boost::asio::write(s, boost::asio::buffer(msg, 5), boost::asio::transfer_all(), ec);
 	if (ec) TEST_ERROR(ec.message());
 }
-#endif
 
 void send_have_all(tcp::socket& s)
 {
@@ -1137,6 +1135,100 @@ TORRENT_TEST(dont_have)
 	TEST_EQUAL(pi[0].pieces[0_piece], true);
 
 	print_session_log(*ses);
+}
+
+namespace {
+
+void test_discard_piece(bool const supports_dont_have)
+{
+	using namespace lt::aux;
+
+	info_hash_t ih;
+	torrent_handle th;
+	std::shared_ptr<lt::session> ses;
+	io_context ios;
+	tcp::socket s(ios);
+	setup_peer(s, ios, ih, ses, true, false, false
+		, torrent_flags::seed_mode, &th);
+
+	char recv_buffer[1000];
+	do_handshake(s, ih, recv_buffer);
+
+	entry extensions(entry::dictionary_t);
+	int constexpr dont_have_id = 7;
+	if (supports_dont_have)
+		extensions["m"]["lt_donthave"] = dont_have_id;
+	send_extension_handshake(s, extensions);
+	read_extension_handshake(s, recv_buffer);
+
+	piece_index_t const discarded_piece = 2_piece;
+	th.discard_piece(discarded_piece);
+
+	if (supports_dont_have)
+	{
+		for (;;)
+		{
+			int const len = read_message(s, recv_buffer);
+			if (len == -1) return;
+			auto const message = span<char const>(recv_buffer).first(len);
+			print_message(message);
+			if (len != 6 || message[0] != 20
+				|| message[1] != dont_have_id)
+				continue;
+
+			char const* ptr = message.data() + 2;
+			TEST_EQUAL(read_int32(ptr), static_cast<int>(discarded_piece));
+			break;
+		}
+	}
+
+	// The peer connection remains usable after the local piece disappears.
+	// A request based on an old bitfield must be rejected, never served.
+	send_interested(s);
+	if (!wait_for_counter(*ses, "ses.num_outgoing_unchoke", 1))
+	{
+		TEST_ERROR("expected unchoke message");
+		s.close();
+		return;
+	}
+
+	peer_request req;
+	req.piece = discarded_piece;
+	req.start = 0;
+	req.length = 0x4000;
+	send_request(s, req);
+
+	for (;;)
+	{
+		int const len = read_message(s, recv_buffer);
+		if (len == -1) return;
+		auto const message = span<char const>(recv_buffer).first(len);
+		print_message(message);
+		if (len != 13 || message[0] != 0x10) continue;
+
+		char const* ptr = message.data() + 1;
+		TEST_EQUAL(read_int32(ptr), static_cast<int>(discarded_piece));
+		TEST_EQUAL(read_int32(ptr), req.start);
+		TEST_EQUAL(read_int32(ptr), req.length);
+		break;
+	}
+
+	std::vector<peer_info> pi;
+	TEST_CHECK(wait_for_peer_info(th, pi
+		, [](peer_info const&) { return true; }));
+	s.close();
+}
+
+} // anonymous namespace
+
+TORRENT_TEST(discard_piece_dont_have)
+{
+	test_discard_piece(true);
+}
+
+TORRENT_TEST(discard_piece_without_dont_have)
+{
+	test_discard_piece(false);
 }
 
 TORRENT_TEST(extension_handshake)

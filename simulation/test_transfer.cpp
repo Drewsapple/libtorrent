@@ -9,9 +9,89 @@ see LICENSE file.
 
 #include "transfer_sim.hpp"
 #include "libtorrent/load_torrent.hpp"
+#include "libtorrent/peer_info.hpp"
 
 using namespace sim;
 using namespace lt;
+
+TORRENT_TEST(discard_piece_swarm)
+{
+	enum class state
+	{
+		waiting_for_seeds,
+		waiting_for_dont_have,
+		waiting_for_redownload
+	};
+
+	state test_state = state::waiting_for_seeds;
+	std::vector<lt::session*> sessions;
+	lt::piece_index_t const piece{3};
+	bool saw_dont_have = false;
+
+	dsl_config network_cfg;
+	sim::simulation simulation{network_cfg};
+	lt::settings_pack pack = settings();
+	pack.set_bool(lt::settings_pack::close_redundant_connections, false);
+	lt::add_torrent_params params;
+	params.flags &= ~lt::torrent_flags::paused;
+	params.flags &= ~lt::torrent_flags::auto_managed;
+
+	setup_swarm(2, swarm_test::upload | swarm_test::no_auto_stop, simulation
+		, pack, params
+		, [&](lt::session& session) { sessions.push_back(&session); }
+		, [](lt::settings_pack&) {}
+		, [](lt::add_torrent_params&) {}
+		, [](lt::alert const*, lt::session&) {}
+		, [&](int const ticks, lt::session&) -> bool
+		{
+			if (sessions.size() != 2
+				|| sessions[0]->get_torrents().empty()
+				|| sessions[1]->get_torrents().empty())
+				return false;
+
+			auto const evicting = sessions[0]->get_torrents().front();
+			auto const source = sessions[1]->get_torrents().front();
+			std::vector<lt::peer_info> peers;
+			source.get_peer_info(peers);
+
+			switch (test_state)
+			{
+				case state::waiting_for_seeds:
+					if (!evicting.status().is_seeding || !source.status().is_seeding
+						|| peers.size() != 1 || !peers[0].pieces[piece])
+						break;
+
+					evicting.piece_priority(piece, lt::dont_download);
+					evicting.discard_piece(piece);
+					test_state = state::waiting_for_dont_have;
+					break;
+
+				case state::waiting_for_dont_have:
+					if (evicting.have_piece(piece) || peers.size() != 1
+						|| peers[0].pieces[piece])
+						break;
+
+					saw_dont_have = true;
+					evicting.piece_priority(piece, lt::default_priority);
+					test_state = state::waiting_for_redownload;
+					break;
+
+				case state::waiting_for_redownload:
+					if (!evicting.status().is_seeding)
+						break;
+
+					TEST_CHECK(saw_dont_have);
+					TEST_CHECK(evicting.have_piece(piece));
+					TEST_EQUAL(peers.size(), 1);
+					return true;
+			}
+
+			if (ticks < 120) return false;
+
+			TEST_ERROR("timed out waiting for discarded piece lifecycle");
+			return true;
+		});
+}
 
 TORRENT_TEST(socks4_tcp)
 {

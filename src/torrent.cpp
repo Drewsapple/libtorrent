@@ -5106,7 +5106,12 @@ namespace {
 		// every piece before removing the requested one.
 		bool const had_all = m_have_all;
 		if (m_seed_mode) leave_seed_mode(seed_mode_t::skip_checking);
-		if (had_all) set_have_all(false);
+		if (had_all)
+		{
+			set_have_all(false);
+			update_gauge();
+			update_state_list();
+		}
 		need_picker();
 		if (had_all) m_picker->we_have_all();
 
