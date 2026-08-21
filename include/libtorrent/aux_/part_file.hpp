@@ -47,6 +47,7 @@ namespace libtorrent::aux {
 		// free the slot the given piece is stored in. We no longer need to store this
 		// piece in the part file
 		void free_piece(piece_index_t piece);
+		void discard_piece(piece_index_t piece, error_code& ec);
 
 		void move_partfile(std::string const& path, error_code& ec);
 

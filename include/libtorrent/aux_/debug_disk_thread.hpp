@@ -89,6 +89,9 @@ inline std::string print_job(aux::disk_job const& j)
 		void operator()(job::clear_piece const& j) const {
 			m_ss << "clear-piece( piece: " << j.piece << " )";
 		}
+		void operator()(job::discard_piece const& j) const {
+			m_ss << "discard-piece( piece: " << j.piece << " )";
+		}
 
 		void operator()(job::partial_read const& j) const {
 			m_ss << "partial-read( piece: " << j.piece << " offset: " << j.offset

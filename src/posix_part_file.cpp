@@ -51,6 +51,9 @@ see LICENSE file.
 
 #include <functional> // for std::function
 #include <cstdint>
+#if defined TORRENT_LINUX
+#include <fcntl.h>
+#endif
 
 namespace {
 
@@ -321,6 +324,28 @@ namespace aux {
 		m_free_slots.push_back(i->second);
 		m_piece_map.erase(i);
 		m_dirty_metadata = true;
+	}
+
+	void posix_part_file::discard_piece(piece_index_t const piece, error_code& ec)
+	{
+		auto const i = m_piece_map.find(piece);
+		if (i == m_piece_map.end()) return;
+#if defined TORRENT_LINUX && defined FALLOC_FL_PUNCH_HOLE && defined FALLOC_FL_KEEP_SIZE
+		file_pointer f = open_file(open_mode::read_write, ec);
+		if (ec) return;
+		if (::fallocate(::fileno(f.file()), FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE
+			, slot_offset(i->second), m_piece_size) < 0)
+		{
+			ec.assign(errno, generic_category());
+			return;
+		}
+		m_free_slots.push_back(i->second);
+		m_piece_map.erase(i);
+		m_dirty_metadata = true;
+#else
+		ec = boost::system::errc::make_error_code(
+			boost::system::errc::operation_not_supported);
+#endif
 	}
 
 	void posix_part_file::move_partfile(std::string const& path, error_code& ec)

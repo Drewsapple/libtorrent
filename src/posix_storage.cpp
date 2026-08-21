@@ -20,6 +20,10 @@ see LICENSE file.
 #include "libtorrent/aux_/storage_utils.hpp" // for read_zeroes, move_storage
 #include "libtorrent/aux_/readwrite.hpp"
 
+#if defined TORRENT_LINUX
+#include <fcntl.h>
+#endif
+
 #if defined TORRENT_SIMULATE_SLOW_READ || defined TORRENT_SIMULATE_SLOW_WRITE
 #include <thread>
 #endif
@@ -57,6 +61,46 @@ namespace aux {
 	{
 		error_code ec;
 		if (m_part_file) m_part_file->flush_metadata(ec);
+	}
+
+	void posix_storage::discard_piece(piece_index_t const piece, storage_error& error)
+	{
+		for (file_slice const& slice : files().map_block(piece, 0, files().piece_size(piece)))
+		{
+			if (files().pad_file_at(slice.file_index)) continue;
+			if (slice.file_index < m_file_priority.end_index()
+				&& m_file_priority[slice.file_index] == dont_download
+				&& use_partfile(slice.file_index))
+			{
+				if (!m_part_file) continue;
+				error_code ec;
+				m_part_file->discard_piece(piece, ec);
+				if (ec)
+				{
+					error.ec = ec;
+					error.operation = operation_t::file_fallocate;
+					return;
+				}
+				continue;
+			}
+#if defined TORRENT_LINUX && defined FALLOC_FL_PUNCH_HOLE && defined FALLOC_FL_KEEP_SIZE
+			file_pointer f = open_file(slice.file_index, open_mode::write, slice.offset, error);
+			if (error) return;
+			if (::fallocate(::fileno(f.file()), FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE
+				, slice.offset, slice.size) < 0)
+			{
+				error.ec.assign(errno, generic_category());
+				error.operation = operation_t::file_fallocate;
+				error.file(slice.file_index);
+				return;
+			}
+#else
+			error.ec = boost::system::errc::make_error_code(
+				boost::system::errc::operation_not_supported);
+			error.operation = operation_t::file_fallocate;
+			return;
+#endif
+		}
 	}
 
 	void posix_storage::need_partfile()

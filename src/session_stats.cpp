@@ -417,6 +417,7 @@ namespace {
 		METRIC(disk, num_fenced_file_priority),
 		METRIC(disk, num_fenced_load_torrent),
 		METRIC(disk, num_fenced_clear_piece),
+		METRIC(disk, num_fenced_discard_piece),
 		METRIC(disk, num_fenced_tick_storage),
 
 		// The number of nodes in the DHT routing table

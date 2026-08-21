@@ -91,6 +91,12 @@ namespace {
 			j.handler(j.piece);
 		}
 
+		void operator()(job::discard_piece& j) const
+		{
+			if (!j.handler) return;
+			j.handler(j.piece, m_job.error);
+		}
+
 		void operator()(job::partial_read& j) const
 		{
 			if (!j.handler) return;

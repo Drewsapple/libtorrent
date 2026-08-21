@@ -150,6 +150,8 @@ struct TORRENT_EXTRA_EXPORT pread_disk_io final
 
 	void async_clear_piece(storage_index_t storage, piece_index_t index
 		, std::function<void(piece_index_t)> handler) override;
+	void async_discard_piece(storage_index_t storage, piece_index_t index
+		, std::function<void(piece_index_t, storage_error const&)> handler) override;
 
 	void update_stats_counters(counters& c) const override;
 
@@ -172,6 +174,7 @@ struct TORRENT_EXTRA_EXPORT pread_disk_io final
 	status_t do_job(aux::job::stop_torrent& a, aux::pread_disk_job* j);
 	status_t do_job(aux::job::file_priority& a, aux::pread_disk_job* j);
 	status_t do_job(aux::job::clear_piece& a, aux::pread_disk_job* j);
+	status_t do_job(aux::job::discard_piece& a, aux::pread_disk_job* j);
 
 private:
 
@@ -1130,6 +1133,15 @@ void pread_disk_io::async_clear_piece(storage_index_t const storage
 	add_fence_job(j);
 }
 
+void pread_disk_io::async_discard_piece(storage_index_t const storage
+	, piece_index_t const index
+	, std::function<void(piece_index_t, storage_error const&)> handler)
+{
+	auto* j = m_job_pool.allocate_job<aux::job::discard_piece>(
+		{}, m_torrents[storage]->shared_from_this(), std::move(handler), index);
+	add_fence_job(j);
+}
+
 status_t pread_disk_io::do_job(aux::job::hash& a, aux::pread_disk_job* j)
 {
 	bool const v1 = bool(j->flags & disk_interface::v1_hash);
@@ -1560,6 +1572,12 @@ status_t pread_disk_io::do_job(aux::job::clear_piece& a, aux::pread_disk_job* j)
 	// caller the v2 drain typically completed before the write error
 	// surfaced and the entries it stored are removed here.
 	j->storage->drop_precomputed_v2(a.piece);
+	return {};
+}
+
+status_t pread_disk_io::do_job(aux::job::discard_piece& a, aux::pread_disk_job* j)
+{
+	j->storage->discard_piece(m_settings, a.piece, j->error);
 	return {};
 }
 

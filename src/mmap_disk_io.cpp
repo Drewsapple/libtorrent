@@ -128,6 +128,8 @@ struct TORRENT_EXTRA_EXPORT mmap_disk_io final
 
 	void async_clear_piece(storage_index_t storage, piece_index_t index
 		, std::function<void(piece_index_t)> handler) override;
+	void async_discard_piece(storage_index_t storage, piece_index_t index
+		, std::function<void(piece_index_t, storage_error const&)> handler) override;
 
 	void update_stats_counters(counters& c) const override;
 
@@ -150,6 +152,7 @@ struct TORRENT_EXTRA_EXPORT mmap_disk_io final
 	status_t do_job(aux::job::stop_torrent& a, aux::mmap_disk_job* j);
 	status_t do_job(aux::job::file_priority& a, aux::mmap_disk_job* j);
 	status_t do_job(aux::job::clear_piece& a, aux::mmap_disk_job* j);
+	status_t do_job(aux::job::discard_piece& a, aux::mmap_disk_job* j);
 
 private:
 
@@ -864,6 +867,15 @@ TORRENT_EXPORT std::unique_ptr<disk_interface> mmap_disk_io_constructor(
 		add_fence_job(j);
 	}
 
+	void mmap_disk_io::async_discard_piece(storage_index_t const storage
+		, piece_index_t const index
+		, std::function<void(piece_index_t, storage_error const&)> handler)
+	{
+		auto* j = m_job_pool.allocate_job<aux::job::discard_piece>(
+			{}, m_torrents[storage]->shared_from_this(), std::move(handler), index);
+		add_fence_job(j);
+	}
+
 	status_t mmap_disk_io::do_job(aux::job::hash& a, aux::mmap_disk_job* j)
 	{
 		// we're not using a cache. This is the simple path
@@ -1188,6 +1200,12 @@ TORRENT_EXPORT std::unique_ptr<disk_interface> mmap_disk_io_constructor(
 		// completed since this is a fence job; drop any precomputed block
 		// hashes for the cleared piece so a re-download starts fresh
 		j->storage->drop_precomputed_v2(a.piece);
+		return {};
+	}
+
+	status_t mmap_disk_io::do_job(aux::job::discard_piece& a, aux::mmap_disk_job* j)
+	{
+		j->storage->discard_piece(m_settings, a.piece, j->error);
 		return {};
 	}
 

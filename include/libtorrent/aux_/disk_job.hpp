@@ -44,6 +44,7 @@ namespace libtorrent::aux {
 		, stop_torrent
 		, file_priority
 		, clear_piece
+		, discard_piece
 		, partial_read
 		, num_job_ids
 	};
@@ -242,6 +243,12 @@ namespace job {
 		piece_index_t piece;
 	};
 
+	struct discard_piece
+	{
+		std::function<void(piece_index_t, storage_error const&)> handler;
+		piece_index_t piece;
+	};
+
 }
 
 	// disk_job is a generic base class to disk io subsystem-specifit jobs (e.g.
@@ -292,6 +299,7 @@ namespace job {
 			, job::stop_torrent
 			, job::file_priority
 			, job::clear_piece
+			, job::discard_piece
 			, job::partial_read
 		> action;
 
@@ -326,4 +334,3 @@ namespace job {
 }
 
 #endif // TORRENT_DISK_JOB_HPP
-

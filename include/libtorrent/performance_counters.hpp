@@ -455,6 +455,7 @@ namespace libtorrent {
 			num_fenced_file_priority,
 			num_fenced_load_torrent,
 			num_fenced_clear_piece,
+			num_fenced_discard_piece,
 			num_fenced_tick_storage,
 
 			dht_nodes,

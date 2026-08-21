@@ -504,6 +504,35 @@ mmap_storage::mmap_storage(storage_params const& params, aux::file_view_pool& po
 		m_stat_cache.clear();
 	}
 
+	void mmap_storage::discard_piece(settings_interface const& sett
+		, piece_index_t const piece, storage_error& error)
+	{
+		for (file_slice const& slice : files().map_block(piece, 0, files().piece_size(piece)))
+		{
+			if (files().pad_file_at(slice.file_index)) continue;
+			if (slice.file_index < m_file_priority.end_index()
+				&& m_file_priority[slice.file_index] == dont_download
+				&& use_partfile(slice.file_index))
+			{
+				if (!m_part_file) continue;
+				m_part_file->discard_piece(piece, error.ec);
+				if (error) error.operation = operation_t::file_fallocate;
+				continue;
+			}
+
+			m_pool.release(storage_index(), slice.file_index);
+			auto handle = open_file(sett, slice.file_index, open_mode::write, error);
+			if (error) return;
+			punch_hole(handle->fd(), slice.offset, slice.size, error.ec);
+			if (error)
+			{
+				error.file(slice.file_index);
+				error.operation = operation_t::file_fallocate;
+				return;
+			}
+		}
+	}
+
 	void mmap_storage::delete_files(remove_flags_t const options, storage_error& ec)
 	{
 		// make sure we don't have the files open

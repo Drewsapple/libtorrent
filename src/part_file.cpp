@@ -301,6 +301,27 @@ namespace libtorrent::aux {
 		m_dirty_metadata = true;
 	}
 
+	void part_file::discard_piece(piece_index_t const piece, error_code& ec)
+	{
+		std::unique_lock<std::mutex> l(m_mutex);
+		auto const i = m_piece_map.find(piece);
+		if (i == m_piece_map.end()) return;
+		slot_index_t const slot = i->second;
+		l.unlock();
+
+		file_handle f = open_file(open_mode::write, ec);
+		if (ec) return;
+		punch_hole(f.fd(), slot_offset(slot), m_piece_size, ec);
+		if (ec) return;
+
+		l.lock();
+		auto const current = m_piece_map.find(piece);
+		if (current == m_piece_map.end() || current->second != slot) return;
+		m_free_slots.push_back(slot);
+		m_piece_map.erase(current);
+		m_dirty_metadata = true;
+	}
+
 	void part_file::move_partfile(std::string const& path, error_code& ec)
 	{
 		std::lock_guard<std::mutex> l(m_mutex);

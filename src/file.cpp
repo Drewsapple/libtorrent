@@ -116,6 +116,21 @@ see LICENSE file.
 
 namespace libtorrent::aux {
 
+	void punch_hole(handle_type const handle, std::int64_t const offset
+		, std::int64_t const len, error_code& ec)
+	{
+#if defined TORRENT_LINUX && defined FALLOC_FL_PUNCH_HOLE && defined FALLOC_FL_KEEP_SIZE
+		if (::fallocate(handle, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, offset, len) < 0)
+			ec.assign(errno, generic_category());
+#else
+		TORRENT_UNUSED(handle);
+		TORRENT_UNUSED(offset);
+		TORRENT_UNUSED(len);
+		ec = boost::system::errc::make_error_code(
+			boost::system::errc::operation_not_supported);
+#endif
+	}
+
 #if TORRENT_USE_PWRITEV
 namespace {
 	span<iovec> advance_iovec(span<iovec> bufs, ssize_t advance_bytes)

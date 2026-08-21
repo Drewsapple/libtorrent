@@ -76,6 +76,8 @@ namespace libtorrent::aux {
 
 	void advise_dont_need(handle_type handle, std::int64_t offset, std::int64_t len);
 	void sync_file(handle_type handle, std::int64_t offset, std::int64_t len);
+	TORRENT_EXTRA_EXPORT void punch_hole(handle_type handle, std::int64_t offset
+		, std::int64_t len, error_code& ec);
 
 	struct TORRENT_EXTRA_EXPORT file_handle
 	{

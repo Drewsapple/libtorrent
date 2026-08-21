@@ -508,6 +508,34 @@ namespace libtorrent::aux {
 		});
 	}
 
+	void pread_storage::discard_piece(settings_interface const& sett
+		, piece_index_t const piece, storage_error& error)
+	{
+		for (file_slice const& slice : files().map_block(piece, 0, files().piece_size(piece)))
+		{
+			if (files().pad_file_at(slice.file_index)) continue;
+			if (slice.file_index < m_file_priority.end_index()
+				&& m_file_priority[slice.file_index] == dont_download
+				&& use_partfile(slice.file_index))
+			{
+				if (!m_part_file) continue;
+				m_part_file->discard_piece(piece, error.ec);
+				if (error) error.operation = operation_t::file_fallocate;
+				continue;
+			}
+
+			auto handle = open_file(sett, slice.file_index, open_mode::write, error);
+			if (error) return;
+			punch_hole(handle->fd(), slice.offset, slice.size, error.ec);
+			if (error)
+			{
+				error.file(slice.file_index);
+				error.operation = operation_t::file_fallocate;
+				return;
+			}
+		}
+	}
+
 	int pread_storage::write(settings_interface const& sett
 		, span<span<char const> const> buffers
 		, piece_index_t const piece, int offset

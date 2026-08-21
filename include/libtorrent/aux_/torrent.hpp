@@ -1126,6 +1126,7 @@ namespace libtorrent::aux {
 		void discard_piece(piece_index_t index);
 		void discard_pieces(std::vector<piece_index_t> pieces);
 		void on_discard_piece_sync(piece_index_t piece);
+		void on_discard_piece_deallocated(piece_index_t piece, storage_error const& error);
 
 		// the peers in "peers" participated in sending a bad piece. If
 		// "known_bad_peer" is true, we know for sure the peers are guilty,

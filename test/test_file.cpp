@@ -51,6 +51,30 @@ void touch_file(std::string const& filename, int size)
 
 } // anonymous namespace
 
+TORRENT_TEST(punch_hole)
+{
+	std::string const name = "punch_hole_test";
+	auto cleanup = aux::scope_end([&] { error_code ignored; remove(name, ignored); });
+	std::vector<char> data(3 * 4096, char{0x5a});
+	error_code ec;
+	{
+		aux::file_handle f(name, data.size(), aux::open_mode::write);
+		TEST_EQUAL(aux::pwrite_all(f.fd(), data, 0, ec), int(data.size()));
+		TEST_CHECK(!ec);
+		aux::punch_hole(f.fd(), 4096, 4096, ec);
+		if (ec == boost::system::errc::operation_not_supported) return;
+		TEST_CHECK(!ec);
+	}
+
+	std::fill(data.begin(), data.end(), char{0});
+	std::ifstream(name).read(data.data(), aux::numeric_cast<std::streamsize>(data.size()));
+	TEST_EQUAL(data.front(), char{0x5a});
+	TEST_EQUAL(data[4095], char{0x5a});
+	TEST_EQUAL(data[4096], char{0});
+	TEST_EQUAL(data[8191], char{0});
+	TEST_EQUAL(data[8192], char{0x5a});
+}
+
 #ifndef TORRENT_WINDOWS
 TORRENT_TEST(pwrite_all_short_write)
 {

@@ -5097,22 +5097,32 @@ namespace {
 		INVARIANT_CHECK;
 		TORRENT_ASSERT(is_single_thread());
 		if (!valid_metadata() || index < piece_index_t{0}
-			|| index >= torrent_file().end_piece() || !have_piece(index))
+			|| index >= torrent_file().end_piece())
 			return;
+		bool const had_piece = have_piece(index);
 
-		// Seed mode cannot represent a missing piece. Leaving it without checking
-		// creates the picker while preserving the live peer/tracker state.
+		// A completed torrent normally has no picker. Transition out of the
+		// compact "have all" representation, then initialize the new picker with
+		// every piece before removing the requested one.
+		bool const had_all = m_have_all;
 		if (m_seed_mode) leave_seed_mode(seed_mode_t::skip_checking);
+		if (had_all) set_have_all(false);
 		need_picker();
+		if (had_all) m_picker->we_have_all();
 
 		for (auto* p : m_connections)
 		{
 			TORRENT_INCREMENT(m_iterating_connections);
 			p->reject_piece(index);
-			p->write_dont_have(index);
+			if (had_piece) p->write_dont_have(index);
 		}
 
 		m_picker->we_dont_have(index);
+		// we_dont_have() updates the picker but not the separately maintained
+		// per-file byte counters. Rebuild them so file-progress consumers see
+		// the physically/logically discarded range immediately.
+		m_file_progress.clear();
+		m_file_progress.init(*m_picker, m_torrent_file->layout());
 		if (index < m_verified.end_index() && m_verified.get_bit(index))
 		{
 			m_verified.clear_bit(index);
@@ -5138,8 +5148,46 @@ namespace {
 	{
 		TORRENT_ASSERT(is_single_thread());
 		if (!has_picker()) return;
+		// The piece may have completed after discard_piece() removed its
+		// in-progress picker state but before the disk fence ran. Remove that
+		// late completion again before physically deallocating the range.
+		if (have_piece(piece))
+		{
+			for (auto* p : m_connections)
+			{
+				TORRENT_INCREMENT(m_iterating_connections);
+				p->write_dont_have(piece);
+			}
+		}
+		m_picker->we_dont_have(piece);
+		m_file_progress.clear();
+		m_file_progress.init(*m_picker, m_torrent_file->layout());
+		if (piece < m_verified.end_index() && m_verified.get_bit(piece))
+		{
+			m_verified.clear_bit(piece);
+			--m_num_verified;
+		}
+		update_gauge();
+		set_need_save_resume(torrent_handle::if_download_progress);
 		m_picker->restore_piece(piece, {});
 		update_peer_interest(true);
+		if (m_storage)
+		{
+			m_ses.disk_thread().async_discard_piece(m_storage, piece
+				, [self = shared_from_this()](piece_index_t const& p, storage_error const& e)
+				{ self->on_discard_piece_deallocated(p, e); });
+			m_ses.deferred_submit_jobs();
+		}
+	}
+
+	void torrent::on_discard_piece_deallocated(piece_index_t const
+		, storage_error const& error)
+	{
+		TORRENT_ASSERT(is_single_thread());
+		if (!error) return;
+		if (alerts().should_post<file_error_alert>())
+			alerts().emplace_alert<file_error_alert>(error.ec
+				, resolve_filename(error.file()), error.operation, get_handle());
 	}
 
 	void torrent::penalize_peers(std::set<torrent_peer*> const& peers
@@ -9234,7 +9282,7 @@ namespace {
 		if (m_seed_mode) return true;
 		if (m_have_all) return true;
 		if (m_picker && m_picker->is_seeding()) return true;
-		return m_state == torrent_status::seeding;
+		return false;
 	}
 
 	bool torrent::is_finished() const

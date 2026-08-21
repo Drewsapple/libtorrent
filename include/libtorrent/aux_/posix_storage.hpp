@@ -63,6 +63,7 @@ namespace aux {
 		void rename_file(file_index_t const index, std::string const& new_filename, storage_error& ec);
 
 		status_t initialize(settings_interface const&, storage_error& ec);
+		void discard_piece(piece_index_t piece, storage_error& ec);
 
 	private:
 
@@ -98,4 +99,3 @@ namespace aux {
 }
 }
 #endif
-

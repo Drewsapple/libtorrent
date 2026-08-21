@@ -95,6 +95,7 @@ namespace libtorrent::aux {
 		int hash2(settings_interface const&, hasher256& ph, std::ptrdiff_t len
 			, piece_index_t piece, int offset, aux::open_mode_t mode
 			, disk_job_flags_t flags, storage_error&);
+		void discard_piece(settings_interface const&, piece_index_t, storage_error&);
 
 		file_storage const& files() const { return m_files; }
 		filenames names() const;

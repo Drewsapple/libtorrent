@@ -23,6 +23,7 @@ see LICENSE file.
 #include "libtorrent/aux_/vector.hpp"
 #include "libtorrent/aux_/export.hpp"
 #include "libtorrent/storage_defs.hpp"
+#include "libtorrent/error_code.hpp"
 #include "libtorrent/time.hpp"
 #include "libtorrent/sha1_hash.hpp"
 #include "libtorrent/flags.hpp"
@@ -336,6 +337,16 @@ namespace file_open_mode {
 		// posting the result back.
 		virtual void async_clear_piece(storage_index_t storage, piece_index_t index
 			, std::function<void(piece_index_t)> handler) = 0;
+
+		virtual void async_discard_piece(storage_index_t, piece_index_t index
+			, std::function<void(piece_index_t, storage_error const&)> handler)
+		{
+			storage_error error;
+			error.ec = boost::system::errc::make_error_code(
+				boost::system::errc::operation_not_supported);
+			error.operation = operation_t::file_fallocate;
+			handler(index, error);
+		}
 
 		// update_stats_counters() is called to give the disk storage an
 		// opportunity to update gauges in the ``c`` stats counters, that aren't

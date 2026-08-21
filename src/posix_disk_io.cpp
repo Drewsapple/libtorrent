@@ -349,6 +349,14 @@ namespace {
 			post(m_ios, [=, h = std::move(handler)]{ h(index); });
 		}
 
+		void async_discard_piece(storage_index_t const storage, piece_index_t index
+			, std::function<void(piece_index_t, storage_error const&)> handler) override
+		{
+			storage_error error;
+			m_torrents[storage]->discard_piece(index, error);
+			post(m_ios, [=, h = std::move(handler)] { h(index, error); });
+		}
+
 		void update_stats_counters(counters&) const override {}
 
 		std::vector<open_file_state> get_status(storage_index_t) const override
